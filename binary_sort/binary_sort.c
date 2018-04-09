@@ -2,7 +2,6 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include <limits.h>
 #include <mpi.h>
 
@@ -19,7 +18,6 @@ void binary_sort_rec(int arr[], int arr_start, int arr_end, int my_rank, int p_s
 	MPI_Status status;
 
 	if((p_end - p_start) <= 1) {
-		printf("[%d] Base case (%d, %d)\n", my_rank, p_start, p_end);
 		//Base case
 		//Perform binary sort on local list
 		serial_binary_sort(arr + arr_start, arr_end - arr_start);

@@ -3,7 +3,6 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include <limits.h>
 #include <mpi.h>
 
@@ -29,8 +28,6 @@ void psrs(int arr[], size_t size, int my_rank, int comm_sz) {
 
 	//Distribute partial lists to all processes
 	if(my_rank == 0) {
-		printf("[Info] Starting list size: %d\n", size);
-
 		recv_counts = (int*)malloc(comm_sz * sizeof(int));
 		displacements = (int*)malloc(comm_sz * sizeof(int));
 
@@ -53,13 +50,9 @@ void psrs(int arr[], size_t size, int my_rank, int comm_sz) {
 		MPI_Recv(my_arr, size, MPI_INT, 0, 0, MPI_COMM_WORLD, &status);
 		MPI_Get_count(&status, MPI_INT, &count);
 	}
-	
-	printf("[%d] Sorting partial list with serial qsort\n", my_rank);
 
 	//Each process sorts partial list
 	serial_qsort(my_arr, count);
-
-	printf("[%d] Generating local regular samples\n", my_rank);
 
 	//Generate local regular samples
 	int* samples = (int*)malloc(comm_sz * sizeof(int));
@@ -69,16 +62,12 @@ void psrs(int arr[], size_t size, int my_rank, int comm_sz) {
 		samples[i] = my_arr[sample];
 	}
 
-	printf("[%d] Gathering all regular samples on root\n", my_rank);
-
 	//Gather all samples onto root
 	int* all_samples;
 	if(my_rank == 0) {
 		all_samples = (int*)malloc(p_sqr * sizeof(int));
 	}
 	MPI_Gather(samples, comm_sz, MPI_INT, all_samples, comm_sz, MPI_INT, 0, MPI_COMM_WORLD);
-
-	printf("[%d] Selecting pivot values\n", my_rank);
 
 	//Select pivot values
 	if(my_rank == 0) {
@@ -87,12 +76,8 @@ void psrs(int arr[], size_t size, int my_rank, int comm_sz) {
 		}
 	}
 
-	printf("[%d] Broadcasting pivot values\n", my_rank);
-
 	//Broadcast pivot values
 	MPI_Bcast(pivots, comm_sz - 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-	printf("[%d] Sending sublists\n", my_rank);
 
 	//Send sublists
 	int list_start = 0;
@@ -115,8 +100,6 @@ void psrs(int arr[], size_t size, int my_rank, int comm_sz) {
 		list_start = list_end;
 	}
 
-	printf("[%d] Receiving sublists\n", my_rank);
-
 	//Receive sublists
 	for(i = 0; i < comm_sz; ++i) {
 		if(i != my_rank) {
@@ -126,37 +109,23 @@ void psrs(int arr[], size_t size, int my_rank, int comm_sz) {
 		}
 	}
 
-	printf("[%d] Waiting for non-blocking sends to complete\n", my_rank);
-
 	//Wait for non-blocking sends to complete
 	MPI_Waitall(comm_sz - 1, requests, MPI_STATUSES_IGNORE);
-
-	printf("[%d] Merging sublists into sorted partial list\n", my_rank);
 
 	//Merge all sublists into sorted list
 	count = merge(my_arr, sublists, sub_counts, comm_sz);
 
-	printf("[%d] Gathering partial list counts\n", my_rank);
-
 	//Gather partial list counts at root
 	MPI_Gather(&count, 1, MPI_INT, recv_counts, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	if(my_rank == 0) {
-		for(i = 0; i < comm_sz; ++i) {
-			printf("[%d] List count for process %d: %d\n", my_rank, i, recv_counts[i]);
-		}
-
 		displacements[0] = 0;
 		for(i = 1; i < comm_sz; ++i) {
 			displacements[i] = displacements[i-1] + recv_counts[i-1];
 		}
 	}
 
-	printf("[%d] Gathering partial lists onto root\n", my_rank);
-
 	//Gather all partial lists at root
 	MPI_Gatherv(my_arr, count, MPI_INT, arr, recv_counts, displacements, MPI_INT, 0, MPI_COMM_WORLD);
-
-	printf("[%d] Cleaning up memory\n", my_rank);
 
 	if(my_rank == 0) {
 		free(all_samples);
@@ -188,13 +157,10 @@ int merge(int arr[], int *sublists[], int list_counts[], int n_lists) {
 		*sub_values = (int*)malloc(n_lists * sizeof(int)),
 		*value_valid = (int*)malloc(n_lists * sizeof(int));
 	
-	printf("[-] Merging %d sublists\n", n_lists);
-
 	int i_arr = 0;
 	
 	int i;
 	for(i = 0; i < n_lists; ++i) {
-		printf("[-] Merge: list_count[%d]=%d\n", i, list_counts[i]);
 		i_sublists[i] = 0;
 	}
 

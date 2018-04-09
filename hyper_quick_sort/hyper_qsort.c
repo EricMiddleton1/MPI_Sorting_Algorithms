@@ -3,7 +3,6 @@
 
 #include <string.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include <mpi.h>
 
 size_t hyper_qsort_rec(int arr[], int scratch[], int merge_scratch[], size_t size,
@@ -16,8 +15,6 @@ static size_t partition(int arr[], size_t size, int pivot);
 static int hcube_level(int start, int end);
 static int median(int arr[], int size);
 
-static void print_array(int my_rank, int* arr, size_t size);
-
 void hyper_qsort(int arr[], size_t size, int my_rank, int comm_sz) {
 	int* scratch = (int*)malloc(size * sizeof(int));
 	int* merge_scratch = (int*)malloc(size * sizeof(int));
@@ -26,8 +23,6 @@ void hyper_qsort(int arr[], size_t size, int my_rank, int comm_sz) {
 	int *recvCounts, *displacements;
 
 	if(my_rank == 0) {
-		printf("[Info] Starting list size: %d\n", size);
-
 		recvCounts = (int*)malloc(comm_sz * sizeof(int));
 		displacements = (int*)malloc(comm_sz * sizeof(int));
 
@@ -85,13 +80,9 @@ size_t hyper_qsort_rec(int arr[], int scratch[], int merge_scratch[], size_t siz
 	
 	if((blockEnd - blockStart) < 2) {
 		//End of recursion
-		printf("[%d] Block (%d, %d): End of recursion (my values in range [%d, %d])\n", my_rank,
-			blockStart, blockEnd, arr[0], arr[size-1]);
 		return size;
 	}
 
-	printf("[%d] Initial list size: %d\n", my_rank, size);
-	
 	MPI_Status status;
 	int split = blockStart + (blockEnd - blockStart) / 2 + ((blockEnd - blockStart) % 2),
 		block_rank = my_rank - blockStart, lowerSubBlockSize = (split - blockStart),
@@ -102,20 +93,14 @@ size_t hyper_qsort_rec(int arr[], int scratch[], int merge_scratch[], size_t siz
 		//Root always provides the pivot
 		pivot = median(arr, size);
 		
-		//printf("Level=%d, pivot=%d\n", level, pivot);
-		printf("[%d] Sub-block sizes: %d, %d\n", my_rank, lowerSubBlockSize, upperSubBlockSize);
-		printf("[%d] Sending pivot to group (%d, %d)\n", my_rank, blockStart, blockEnd);
 		int i;
 		for(i = blockStart+1; i < blockEnd; ++i) {
 			MPI_Send(&pivot, 1, MPI_INT, i, 0, MPI_COMM_WORLD);
 		}
 	}
 	else {
-		printf("[%d] Waiting for pivot in group (%d, %d)\n", my_rank, blockStart, blockEnd);
 		MPI_Recv(&pivot, 1, MPI_INT, blockStart, 0, MPI_COMM_WORLD, &status);
 	}
-
-	printf("[%d] Pivot exchange complete\n", my_rank);
 
 	size_t i_pivot = partition(arr, size, pivot);
 
@@ -129,8 +114,6 @@ size_t hyper_qsort_rec(int arr[], int scratch[], int merge_scratch[], size_t siz
 		int neighbor = (block_rank % upperSubBlockSize) + split;
 		int recv_count;
 
-		printf("[%d] Single neighbor is %d\n", my_rank, neighbor);
-		printf("[%d] Sending %d values to neighbor\n", my_rank, size - i_pivot);
 
 		//Send upper list to neighbor
 		MPI_Send(arr + i_pivot, size - (i_pivot), MPI_INT, neighbor, 0,
@@ -141,13 +124,8 @@ size_t hyper_qsort_rec(int arr[], int scratch[], int merge_scratch[], size_t siz
 			&status);
 		MPI_Get_count(&status, MPI_INT, &recv_count);
 
-		printf("[%d] Received %d values from neighbor\n", my_rank, recv_count);
-
 		//Merge lists into sorted intermediate result
 		size = merge(arr, 0, i_pivot, scratch, recv_count, merge_scratch);
-		if(!validate(arr, size)) {
-			printf("[%d] Validation error after merge\n", my_rank);
-		}
 	}
 	else {
 		subBlockStart = split;
@@ -161,23 +139,17 @@ size_t hyper_qsort_rec(int arr[], int scratch[], int merge_scratch[], size_t siz
 		int sendSize = i_pivot;
 		int scratchEnd = 0;
 
-		printf("[%d] Neighbor count: %d (%d, %d)\n", my_rank, neighbor_count, lowerSubBlockSize,
-			upperSubBlockSize);
-
 		int* partialList = (int*)malloc(scratchSize * sizeof(int));
 
 		int i;
 		for(i = 0; i < neighbor_count; ++i) {
 			int neighbor = blockStart + subBlockRank + i*upperSubBlockSize;
 
-			printf("[%d] Swapping lists with neighbor %d\n", my_rank, neighbor);
-
 			//Receive this neighbor's upper list
 			int recv_count;
 			MPI_Recv((scratchEnd > 0) ? partialList : scratch, scratchSize, MPI_INT, neighbor, 0,
 				MPI_COMM_WORLD, &status);
 			MPI_Get_count(&status, MPI_INT, &recv_count);
-			printf("[%d] Received %d values from neighbor\n", my_rank, recv_count);
 			
 			if(scratchEnd > 0) {
 				//Merge this upper list with already received upper lists
@@ -190,21 +162,14 @@ size_t hyper_qsort_rec(int arr[], int scratch[], int merge_scratch[], size_t siz
 			//Send part of lower list to this neighbor
 			int sendStart = i*sendSize/neighbor_count, sendEnd = (i+1)*sendSize/neighbor_count;
 			MPI_Send(arr + sendStart, sendEnd - sendStart, MPI_INT, neighbor, 0, MPI_COMM_WORLD);
-			printf("[%d] Sending %d values to neighbor\n", my_rank, sendEnd - sendStart);
 		}
 
 		//Merge all received lists with my current list
 		size = merge(arr, i_pivot, size, scratch, scratchEnd, merge_scratch);
-		if(!validate(arr, size)) {
-			printf("[%d] Validation error after merge\n", my_rank);
-		}
 
 		free(partialList);
 	}
 
-	printf("[%d] List size: %d\n", my_rank, size);
-	
-	printf("[%d] Splitting into block (%d, %d)\n", my_rank, subBlockStart, subBlockEnd);
 	size = hyper_qsort_rec(arr, scratch, merge_scratch, size, scratchSize, subBlockStart,
 		subBlockEnd, my_rank);
 
@@ -213,13 +178,6 @@ size_t hyper_qsort_rec(int arr[], int scratch[], int merge_scratch[], size_t siz
 
 size_t merge(int* in_result, size_t start, size_t stop, int* in_scratch,
 	size_t scratchSize, int* merge_scratch) {
-
-	if(!validate(in_result, stop-start)) {
-		printf("[Error] merge: in_result not sorted\n");
-	}
-	if(!validate(in_scratch, scratchSize)) {
-		printf("[Error] merge: scratch not sorted\n");
-	}
 
 	size_t i_out, i_result = start, i_scratch = 0;
 	for(i_out = 0; (i_result < stop) && (i_scratch < scratchSize); ++i_out) {
@@ -234,29 +192,16 @@ size_t merge(int* in_result, size_t start, size_t stop, int* in_scratch,
 			i_scratch++;
 		}
 	}
-	if(!validate(merge_scratch, i_out)) {
-		printf("[Error] merge: output before final pass not sorted\n");
-	}
 	//Copy any leftover values
 	for(; i_result < stop; ++i_result, ++i_out) {
 		merge_scratch[i_out] = in_result[i_result];
-	}
-	if(!validate(merge_scratch, i_out)) {
-		printf("[Error] merge: output before scratch pass not sorted\n");
 	}
 	for(; i_scratch < scratchSize; ++i_scratch, ++i_out) {
 		merge_scratch[i_out] = in_scratch[i_scratch];
 	}
 
-	if(!validate(merge_scratch, i_out)) {
-		printf("[Error] merge: output not sorted\n");
-	}
-
 	memcpy(in_result, merge_scratch, i_out * sizeof(int));
-	if(!validate(in_result, i_out)) {
-		printf("[Error] merge: output not sorted\n");
-	}
-
+	
 	return i_out;
 }
 
@@ -287,12 +232,4 @@ int median(int arr[], int size) {
 		//Even number size
 		return arr[size/2];
 	}
-}
-
-void print_array(int my_rank, int* arr, size_t size) {
-	int i;
-	for(i = 0; i < size; ++i) {
-		printf("[%d] %d\n", my_rank, arr[i]);
-	}
-	printf("\n");
 }
